@@ -2,7 +2,7 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
-[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)](https://github.com/cangurel81/NethyX-Proxy-Scraper/releases/latest)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)](https://github.com/cangurel81/Nethyx/releases/latest)
 
 NethyX Proxy Scraper collects free proxy addresses from 15 live sources, tests them for
 functionality, and saves the working ones. Built with PyQt5, it runs entirely on your own
@@ -10,7 +10,7 @@ machine — no API keys, no accounts, nothing is uploaded anywhere.
 
 ## Download (Windows)
 
-**[Download NethyX.exe — v1.1, 39.6 MB](https://github.com/cangurel81/NethyX-Proxy-Scraper/releases/latest/download/NethyX.exe)**
+**[Download NethyX.exe — v1.1, 39.6 MB](https://github.com/cangurel81/Nethyx/releases/latest/download/NethyX.exe)**
 
 Standalone executable, Python is not required. Double-click and it runs.
 
@@ -100,8 +100,8 @@ Requires **Python 3.9+**.
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/cangurel81/NethyX-Proxy-Scraper.git
-   cd NethyX-Proxy-Scraper
+   git clone https://github.com/cangurel81/Nethyx.git
+   cd Nethyx
    pip install -r requirements.txt
    python NethyX.py
    ```
