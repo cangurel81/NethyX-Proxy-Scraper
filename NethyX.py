@@ -1,6 +1,7 @@
 import sys
 import os
 import re
+import base64
 import requests
 import threading
 import time
@@ -12,6 +13,56 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                            QTableWidget, QTableWidgetItem, QHeaderView)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont, QIcon, QColor, QPalette
+
+# Düz metin proxy listelerinde geçerli ip:port satırı
+IP_PORT_PATTERN = re.compile(r'^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$')
+
+
+def _js_int(expression):
+    """'2+1' veya '6-1' gibi basit ifadeleri sayiya cevir."""
+    total = 0
+    sign = 1
+    for token in re.findall(r'[+-]|\d+', expression):
+        if token == '+':
+            sign = 1
+        elif token == '-':
+            sign = -1
+        else:
+            total += sign * int(token)
+    return total
+
+
+def decode_proxynova_ip(cell_html):
+    """ProxyNova IP'yi document.write + substring/atob/fromCharCode ile yazar; coz."""
+    match = re.search(r'document\.write\((.*?)\)\s*</script>', cell_html, re.S)
+    if not match:
+        return None
+
+    expression = match.group(1)
+    pieces = []
+
+    for m in re.finditer(r'"([^"]*)"\.substring\(\s*([^)]*?)\s*\)', expression):
+        text = m.group(1)
+        args = [_js_int(a) for a in m.group(2).split(',')]
+        if len(args) == 2:
+            pieces.append((m.start(), text[args[0]:args[1]]))
+
+    for m in re.finditer(r'atob\("([^"]+)"\)', expression):
+        try:
+            pieces.append((m.start(), base64.b64decode(m.group(1)).decode('ascii')))
+        except Exception:
+            pass
+
+    for m in re.finditer(
+            r'\[([\d,\s]+)\]\.map\(\(code\)\s*=>\s*String\.fromCharCode\(code(?:\s*-\s*(\d+))?\)\)',
+            expression):
+        delta = int(m.group(2) or 0)
+        chars = ''.join(chr(int(n) - delta) for n in m.group(1).split(',') if n.strip())
+        pieces.append((m.start(), chars))
+
+    pieces.sort(key=lambda item: item[0])
+    ip = ''.join(piece for _, piece in pieces)
+    return ip if IP_PORT_PATTERN.match(ip + ':0') else None
 
 class Proxy:
     def __init__(self, ip, port, country=None, city=None, anonymity=None, speed=0, uptime=0, last_checked=None, https=False, translator=None):
@@ -381,16 +432,8 @@ class ProxyScraperApp(QMainWindow):
                 'function': self.scrape_proxyscrape
             },
             {
-                'name': 'Proxy-List.download',
-                'function': self.scrape_proxy_list_download
-            },
-            {
                 'name': 'Hidemy.name',
                 'function': self.scrape_hidemy_name
-            },
-            {
-                'name': 'Spys.one',
-                'function': self.scrape_spys_one
             },
             {
                 'name': 'ProxyNova',
@@ -401,49 +444,84 @@ class ProxyScraperApp(QMainWindow):
                 'function': self.scrape_pubproxy
             },
             {
-                'name': 'OpenProxySpace',
-                'function': self.scrape_openproxy_space
-            },
-            {
                 'name': 'SSLProxies',
                 'function': self.scrape_sslproxies
+            },
+            {
+                'name': 'TheSpeedX (GitHub)',
+                'function': self.scrape_thespeedx
+            },
+            {
+                'name': 'Monosans (GitHub)',
+                'function': self.scrape_monosans
+            },
+            {
+                'name': 'Clarketm (GitHub)',
+                'function': self.scrape_clarketm
+            },
+            {
+                'name': 'Vakhov Fresh (GitHub)',
+                'function': self.scrape_vakhov
+            },
+            {
+                'name': 'ProxySpace.pro',
+                'function': self.scrape_proxyspace
+            },
+            {
+                'name': 'Mmpx12 (GitHub)',
+                'function': self.scrape_mmpx12
+            },
+            {
+                'name': 'Roosterkid (GitHub)',
+                'function': self.scrape_roosterkid
+            },
+            {
+                'name': 'IPLocate (GitHub)',
+                'function': self.scrape_iplocate
             }
         ]
     
     def scrape_free_proxy_list(self):
         proxies = []
-        response = requests.get('https://free-proxy-list.net/')
-        soup = BeautifulSoup(response.text, 'html.parser')
-        table = soup.find('table')
-        
-        if table:
-            rows = table.find_all('tr')
-            for row in rows[1:]:
+        try:
+            response = self._http_get('https://free-proxy-list.net/')
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Site 2024'te tablo yapisini degistirdi: ip ve port tek hucrede
+            table = soup.select_one('table.table-striped')
+            if not table:
+                return proxies
+
+            for row in table.find_all('tr')[1:]:
                 cells = row.find_all('td')
-                if len(cells) >= 8:
-                    ip = cells[0].text.strip()
-                    port = cells[1].text.strip()
-                    country_code = cells[2].text.strip()
-                    country = cells[3].text.strip() if cells[3].text.strip() else "Unknown"
-                    anonymity = cells[4].text.strip() if cells[4].text.strip() else "Unknown"
-                    https = cells[6].text.strip() == "yes"
-                    last_checked = cells[7].text.strip() if cells[7].text.strip() else "Unknown"
-                    
-                    proxy = Proxy(
-                        ip=ip,
-                        port=port,
-                        country=country,
-                        anonymity=anonymity,
-                        last_checked=last_checked,
-                        https=https
-                    )
-                    proxies.append(proxy)
-        
+                if len(cells) < 4:
+                    continue
+
+                match = IP_PORT_PATTERN.match(cells[0].get_text(strip=True))
+                if not match:
+                    continue
+
+                protocol = cells[1].get_text(strip=True).lower() if len(cells) > 1 else ''
+                country = cells[3].get_text(strip=True) if len(cells) > 3 else cells[2].get_text(strip=True)
+                anonymity = cells[4].get_text(strip=True) if len(cells) > 4 else None
+                https_cell = cells[5].get_text(strip=True).lower() if len(cells) > 5 else ''
+                last_checked = cells[-1].get_text(strip=True)
+
+                proxies.append(Proxy(
+                    ip=match.group(1),
+                    port=match.group(2),
+                    country=country,
+                    anonymity=anonymity,
+                    last_checked=last_checked,
+                    https=('https' in protocol) or https_cell == 'yes'
+                ))
+        except Exception as e:
+            print(f"Free-Proxy-List scraping error: {e}")
+
         return proxies
     
     def scrape_geonode(self):
         proxies = []
-        response = requests.get('https://proxylist.geonode.com/api/proxy-list?limit=300&page=1&sort_by=lastChecked&sort_type=desc')
+        response = requests.get('https://proxylist.geonode.com/api/proxy-list?limit=300&page=1&sort_by=lastChecked&sort_type=desc', timeout=15)
         data = response.json()
         
         for proxy_data in data.get('data', []):
@@ -475,201 +553,119 @@ class ProxyScraperApp(QMainWindow):
         return proxies
     
     def scrape_proxyscrape(self):
-        proxies = []
-        response = requests.get('https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all')
-        
-        if response.status_code == 200:
-            proxy_list = response.text.strip().split('\r\n')
-            for proxy_str in proxy_list:
-                if proxy_str and ':' in proxy_str:
-                    ip, port = proxy_str.split(':')
-                    proxy = Proxy(ip=ip, port=port)
-                    proxies.append(proxy)
-        
+        # v4 birincil, v2 yedek
+        proxies = self._scrape_plain_list(
+            'https://api.proxyscrape.com/v4/free-proxy-list/get'
+            '?request=display_proxies&protocol=http&proxy_format=ipport&format=text')
+
+        if not proxies:
+            proxies = self._scrape_plain_list(
+                'https://api.proxyscrape.com/v2/?request=getproxies&protocol=http'
+                '&timeout=10000&country=all&ssl=all&anonymity=all')
+
         return proxies
-    
-    def scrape_proxy_list_download(self):
-        proxies = []
-        response = requests.get('https://www.proxy-list.download/api/v1/get?type=http')
-        
-        if response.status_code == 200:
-            proxy_list = response.text.strip().split('\r\n')
-            for proxy_str in proxy_list:
-                if proxy_str and ':' in proxy_str:
-                    ip, port = proxy_str.split(':')
-                    proxy = Proxy(ip=ip, port=port)
-                    proxies.append(proxy)
-        
-        return proxies
-    
+
     def scrape_hidemy_name(self):
         proxies = []
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get('https://hidemy.name/en/proxy-list/', headers=headers)
+            response = self._http_get('https://hidemy.name/en/proxy-list/')
             soup = BeautifulSoup(response.text, 'html.parser')
-            table = soup.find('table', {'class': 'table_block'})
-            
+            # 'table_block' sinifi kaldirildi; en buyuk tabloyu al
+            table = None
+            for candidate in soup.find_all('table'):
+                if len(candidate.find_all('tr')) > 10:
+                    table = candidate
+                    break
+
             if table:
-                rows = table.find('tbody').find_all('tr')
-                for row in rows:
+                for row in table.find_all('tr')[1:]:
                     cells = row.find_all('td')
-                    if len(cells) >= 7:
-                        ip = cells[0].text.strip()
-                        port = cells[1].text.strip()
-                        country = cells[2].text.strip() if len(cells) > 2 else "Unknown"
-                        city = cells[3].text.strip() if len(cells) > 3 else "Unknown"
-                        speed = 0
-                        if len(cells) > 4:
-                            speed_text = cells[4].text.strip()
-                            try:
-                                speed = int(re.search(r'\d+', speed_text).group()) if re.search(r'\d+', speed_text) else 0
-                            except:
-                                speed = 0
-                        
-                        anonymity = cells[5].text.strip() if len(cells) > 5 else "Unknown"
-                        https = "HTTPS" in cells[6].text.strip() if len(cells) > 6 else False
-                        
-                        proxy = Proxy(
-                            ip=ip,
-                            port=port,
-                            country=country,
-                            city=city,
-                            anonymity=anonymity,
-                            speed=speed,
-                            https=https
-                        )
-                        proxies.append(proxy)
+                    if len(cells) < 7:
+                        continue
+
+                    ip = cells[0].get_text(strip=True)
+                    port = cells[1].get_text(strip=True)
+                    if not IP_PORT_PATTERN.match(f"{ip}:{port}"):
+                        continue
+
+                    location = cells[2].get_text(strip=True)
+                    country, _, city = location.partition(' - ')
+
+                    speed = 0
+                    speed_match = re.search(r'\d+', cells[3].get_text(strip=True))
+                    if speed_match:
+                        speed = int(speed_match.group())
+
+                    proxy_type = cells[4].get_text(strip=True).upper()
+                    anonymity = cells[5].get_text(strip=True)
+                    last_checked = cells[6].get_text(strip=True)
+
+                    proxies.append(Proxy(
+                        ip=ip,
+                        port=port,
+                        country=country or None,
+                        city=city or None,
+                        anonymity=anonymity,
+                        speed=speed,
+                        last_checked=last_checked,
+                        https='HTTPS' in proxy_type
+                    ))
         except Exception as e:
             print(f"Hidemy.name scraping error: {e}")
-        
-        return proxies
-    
-    def scrape_spys_one(self):
-        proxies = []
-        try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get('https://spys.one/en/free-proxy-list/', headers=headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            proxy_table = soup.find('table', {'class': 'spy1x'})
-            if proxy_table:
-                rows = proxy_table.find_all('tr')
-                for row in rows[2:]:
-                    cells = row.find_all('td')
-                    if len(cells) >= 2:
-                        ip_cell = cells[0].text.strip()
-                        if ':' in ip_cell:
-                            ip, port = ip_cell.split(':')
-                        elif len(cells) > 1:
-                            ip = ip_cell
-                            port = cells[1].text.strip()
-                        else:
-                            continue
-                            
-                        if not ip or not port:
-                            continue
-                            
-                        country = ""
-                        anonymity = ""
-                        https = False
-                        
-                        if len(cells) > 2:
-                            country = cells[2].text.strip()
-                        if len(cells) > 3:
-                            anonymity = cells[3].text.strip()
-                        if len(cells) > 4:
-                            https = "HTTPS" in cells[4].text.strip()
-                            
-                        proxy = Proxy(
-                            ip=ip,
-                            port=port,
-                            country=country,
-                            anonymity=anonymity,
-                            https=https
-                        )
-                        proxies.append(proxy)
-        except Exception as e:
-            print(f"Spys.one scraping error: {e}")
-        
+
         return proxies
     
     def scrape_proxynova(self):
         proxies = []
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get('https://www.proxynova.com/proxy-server-list/', headers=headers)
+            response = self._http_get('https://www.proxynova.com/proxy-server-list/')
             soup = BeautifulSoup(response.text, 'html.parser')
-            
+
             table = soup.select_one('table#tbl_proxy_list')
-            if table:
-                rows = table.select('tbody tr')
-                for row in rows:
-                    ip_cell = row.select_one('td:nth-child(1)')
-                    port_cell = row.select_one('td:nth-child(2)')
-                    country_cell = row.select_one('td:nth-child(3)')
-                    speed_cell = row.select_one('td:nth-child(4)')
-                    uptime_cell = row.select_one('td:nth-child(5)')
-                    last_check_cell = row.select_one('td:nth-child(6)')
-                    
-                    if ip_cell and port_cell:
-                        script_text = ip_cell.find('script')
-                        if script_text:
-                            script_content = script_text.string
-                            ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', script_content)
-                            if ip_match:
-                                ip = ip_match.group(0)
-                                port = port_cell.text.strip()
-                                
-                                if not ip or not port:
-                                    continue
-                                    
-                                country = country_cell.text.strip() if country_cell else "Unknown"
-                                
-                                speed = 0
-                                if speed_cell:
-                                    speed_text = speed_cell.text.strip()
-                                    try:
-                                        speed = int(re.search(r'\d+', speed_text).group()) if re.search(r'\d+', speed_text) else 0
-                                    except:
-                                        speed = 0
-                                
-                                uptime = 0
-                                if uptime_cell:
-                                    uptime_text = uptime_cell.text.strip()
-                                    try:
-                                        uptime = int(re.search(r'\d+', uptime_text).group()) if re.search(r'\d+', uptime_text) else 0
-                                    except:
-                                        uptime = 0
-                                
-                                last_checked = "Unknown"
-                                if last_check_cell:
-                                    last_checked = last_check_cell.text.strip()
-                                
-                                proxy = Proxy(
-                                    ip=ip,
-                                    port=port,
-                                    country=country,
-                                    speed=speed,
-                                    uptime=uptime,
-                                    last_checked=last_checked
-                                )
-                                proxies.append(proxy)
+            if not table:
+                return proxies
+
+            # Sutunlar: IP (script ile gizli), Port, Son kontrol, Hiz, Uptime, Ulke, Anonimlik
+            for row in table.select('tbody tr'):
+                cells = row.find_all('td')
+                if len(cells) < 7:
+                    continue
+
+                ip = decode_proxynova_ip(str(cells[0]))
+                port = cells[1].get_text(strip=True)
+                if not ip or not IP_PORT_PATTERN.match(f"{ip}:{port}"):
+                    continue
+
+                speed = 0
+                speed_match = re.search(r'(\d+)\s*ms', cells[3].get_text(' ', strip=True))
+                if speed_match:
+                    speed = int(speed_match.group(1))
+
+                uptime_match = re.search(r'\d+', cells[4].get_text(strip=True))
+                uptime = int(uptime_match.group()) if uptime_match else 0
+
+                country_text = cells[5].get_text(' ', strip=True)
+                country, _, city = country_text.partition(' - ')
+
+                proxies.append(Proxy(
+                    ip=ip,
+                    port=port,
+                    country=country or None,
+                    city=city or None,
+                    anonymity=cells[6].get_text(strip=True),
+                    speed=speed,
+                    uptime=uptime,
+                    last_checked=cells[2].get_text(strip=True) or None
+                ))
         except Exception as e:
             print(f"ProxyNova scraping error: {e}")
-        
+
         return proxies
     
     def scrape_pubproxy(self):
         proxies = []
         try:
-            response = requests.get('http://pubproxy.com/api/proxy?limit=5&format=json&https=true')
+            response = requests.get('http://pubproxy.com/api/proxy?limit=20&format=json&https=true', timeout=15)
             data = response.json()
             
             for proxy_data in data.get('data', []):
@@ -697,62 +693,105 @@ class ProxyScraperApp(QMainWindow):
         
         return proxies
     
-    def scrape_openproxy_space(self):
-        proxies = []
-        try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get('https://openproxy.space/list/http', headers=headers)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            proxy_divs = soup.select('div.table-responsive div.proxy')
-            for div in proxy_divs:
-                proxy_text = div.text.strip()
-                if ':' in proxy_text:
-                    ip, port = proxy_text.split(':')
-                    proxy = Proxy(ip=ip, port=port)
-                    proxies.append(proxy)
-        except Exception as e:
-            print(f"OpenProxySpace scraping error: {e}")
-        
-        return proxies
-    
     def scrape_sslproxies(self):
         proxies = []
         try:
-            response = requests.get('https://www.sslproxies.org/')
+            response = self._http_get('https://www.sslproxies.org/')
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            table = soup.find('table', {'id': 'proxylisttable'})
-            if table:
-                rows = table.find_all('tr')
-                for row in rows[1:]:
-                    cells = row.find_all('td')
-                    if len(cells) >= 8:
-                        ip = cells[0].text.strip()
-                        port = cells[1].text.strip()
-                        country = cells[2].text.strip() if len(cells) > 2 else "Unknown"
-                        city = cells[3].text.strip() if len(cells) > 3 else "Unknown"
-                        anonymity = cells[4].text.strip() if len(cells) > 4 else "Unknown"
-                        https = True
-                        last_checked = cells[7].text.strip() if len(cells) > 7 else "Unknown"
-                        
-                        proxy = Proxy(
-                            ip=ip,
-                            port=port,
-                            country=country,
-                            city=city,
-                            anonymity=anonymity,
-                            https=https,
-                            last_checked=last_checked
-                        )
-                        proxies.append(proxy)
+            # 'proxylisttable' id'si kaldirildi; ip:port artik tek hucrede
+            table = soup.select_one('table.table-striped')
+            if not table:
+                return proxies
+
+            for row in table.find_all('tr')[1:]:
+                cells = row.find_all('td')
+                if len(cells) < 4:
+                    continue
+
+                match = IP_PORT_PATTERN.match(cells[0].get_text(strip=True))
+                if not match:
+                    continue
+
+                country = cells[1].get_text(strip=True) if len(cells) > 1 else None
+                protocol = cells[2].get_text(strip=True).upper() if len(cells) > 2 else ''
+                last_checked = cells[-1].get_text(strip=True)
+
+                proxies.append(Proxy(
+                    ip=match.group(1),
+                    port=match.group(2),
+                    country=country,
+                    last_checked=last_checked,
+                    https=(protocol != 'HTTP')
+                ))
         except Exception as e:
             print(f"SSLProxies scraping error: {e}")
-        
+
         return proxies
     
+    # ---- ortak yardımcılar ----
+    def _http_get(self, url, timeout=15):
+        """Zaman aşımı ve gerçekçi User-Agent ile istek at."""
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
+            'Accept': 'text/plain,text/html,*/*'
+        }
+        return requests.get(url, headers=headers, timeout=timeout)
+
+    def _scrape_plain_list(self, url):
+        """ip:port satırlarından oluşan düz metin listelerini ayrıştır."""
+        proxies = []
+        try:
+            response = self._http_get(url)
+            if response.status_code != 200:
+                print(f"Plain list error {response.status_code}: {url}")
+                return proxies
+
+            for line in response.text.splitlines():
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                match = IP_PORT_PATTERN.match(line)
+                if match:
+                    proxies.append(Proxy(ip=match.group(1), port=match.group(2)))
+        except Exception as e:
+            print(f"Plain list scraping error ({url}): {e}")
+
+        return proxies
+
+    # ---- düz metin (GitHub / API) kaynakları ----
+    def scrape_thespeedx(self):
+        return self._scrape_plain_list(
+            'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt')
+
+    def scrape_monosans(self):
+        return self._scrape_plain_list(
+            'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt')
+
+    def scrape_clarketm(self):
+        return self._scrape_plain_list(
+            'https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt')
+
+    def scrape_vakhov(self):
+        return self._scrape_plain_list(
+            'https://vakhov.github.io/fresh-proxy-list/http.txt')
+
+    def scrape_proxyspace(self):
+        return self._scrape_plain_list('https://proxyspace.pro/http.txt')
+
+    def scrape_mmpx12(self):
+        return self._scrape_plain_list(
+            'https://raw.githubusercontent.com/mmpx12/proxy-list/master/http.txt')
+
+    def scrape_roosterkid(self):
+        return self._scrape_plain_list(
+            'https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt')
+
+    def scrape_iplocate(self):
+        return self._scrape_plain_list(
+            'https://raw.githubusercontent.com/iplocate/free-proxy-list/main/protocols/http.txt')
+
     def start_scraping(self):
         selected_sources = []
         for checkbox, source in self.source_checkboxes:
