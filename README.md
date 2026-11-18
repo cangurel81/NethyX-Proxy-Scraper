@@ -109,3 +109,19 @@ Requires **Python 3.9+**.
 Pinned versions: PyQt5 5.15.11, requests 2.34.2, beautifulsoup4 4.15.0, PySocks 1.7.1.
 No API keys or accounts are needed.
 
+## License
+
+GPL-3.0 — see [LICENSE](LICENSE). NethyX is not affiliated with any of the proxy providers it reads from;
+the proxies are third-party and their reliability is not guaranteed.
+
+## 🇹🇷 Türkçe
+
+**NethyX Proxy Scraper**, 15 canlı kaynaktan ücretsiz proxy adreslerini toplar, çalışıp çalışmadığını
+test eder ve çalışanları kaydeder. PyQt5 ile yazılmıştır, tamamen kendi makinenizde çalışır —
+API anahtarı yok, hesap yok, hiçbir veri dışarı gönderilmez.
+
+- **İndirme:** [NethyX.exe](https://github.com/cangurel81/Nethyx/releases/latest/download/NethyX.exe) — Python gerekmez.
+- **Kaynaktan çalıştırma:** `pip install -r requirements.txt` → `python NethyX.py` (Python 3.9+).
+- **Ölçüm (gerçek ağ):** 15 kaynak, ~5,8 sn, 5.002 tekil proxy.
+- **Lisans:** GPL-3.0.
+
