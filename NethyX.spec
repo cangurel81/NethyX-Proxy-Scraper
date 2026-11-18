@@ -3,7 +3,7 @@
 block_cipher = None
 
 a = Analysis(
-    ['proxy_scraper.py'],
+    ['NethyX.py'],
     pathex=[],
     binaries=[],
     datas=[('prxy.ico', '.')], 
@@ -26,7 +26,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='proxy_scraper',
+    name='NethyX',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
