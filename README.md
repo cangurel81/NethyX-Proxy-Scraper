@@ -1,13 +1,35 @@
 # NethyX Proxy Scraper
 
-NethyX Proxy Scraper is a desktop application that collects free proxy addresses from various sources, tests them for functionality, and saves working proxies. Built with PyQt5, it features a modern, user-friendly interface.
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)](https://github.com/cangurel81/NethyX-Proxy-Scraper/releases/latest)
 
-## Overview
+NethyX Proxy Scraper collects free proxy addresses from 15 live sources, tests them for
+functionality, and saves the working ones. Built with PyQt5, it runs entirely on your own
+machine — no API keys, no accounts, nothing is uploaded anywhere.
 
-NethyX Proxy Scraper streamlines the process of gathering and validating proxies. It scrapes proxy lists from multiple online sources, tests them efficiently using multi-threading, and allows users to save working proxies in TXT or JSON format.
+## Download (Windows)
 
-![Ekran görüntüsü 2025-06-03 143501](https://github.com/user-attachments/assets/9cf9c858-190b-4f24-b448-de606edc1c50)
-![Ekran görüntüsü 2025-06-03 143516](https://github.com/user-attachments/assets/d811edd5-1132-4b01-9282-490f5b8f4791)
+**[Download NethyX.exe — v1.1, 39.6 MB](https://github.com/cangurel81/NethyX-Proxy-Scraper/releases/latest/download/NethyX.exe)**
+
+Standalone executable, Python is not required. Double-click and it runs.
+
+> Windows SmartScreen may show *"Windows protected your PC"* because the binary is unsigned.
+> Click **More info → Run anyway**.
+
+## Usage
+
+1. Open the **Scrape** tab and pick the sources you want (all 15 are selected by default).
+2. Click **Start Scraping** — a progress bar and a live log show what is being fetched.
+3. Switch to the **Test** tab, set the thread count, then click **Start Testing**.
+   Higher thread count = faster checking, but more bandwidth and more chance of rate limiting.
+4. Working proxies land in the results table together with their response times.
+5. Click **Save** to export them as `TXT` (`ip:port` per line) or `JSON`.
+
+## Screenshots
+
+![NethyX scrape tab](https://github.com/user-attachments/assets/9cf9c858-190b-4f24-b448-de606edc1c50)
+![NethyX test tab](https://github.com/user-attachments/assets/d811edd5-1132-4b01-9282-490f5b8f4791)
 
 ## Key Features
 
